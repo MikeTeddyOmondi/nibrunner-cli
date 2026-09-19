@@ -165,6 +165,51 @@ func Run(opts Options) (*Result, error) {
 	return &Result{AppID: opts.App, DeploymentID: deploymentID, Digest: digest}, nil
 }
 
+// DeleteOptions names the app to remove and whether its volume should go with it.
+type DeleteOptions struct {
+	App        string
+	KeepVolume bool
+}
+
+// Delete removes an app's instance from desired.json, so nibrunnerd tears down its microVM on the
+// next reconcile pass. By default its volume is marked "absent" too (the schema's own way of
+// asking nibrunnerd to reclaim it, same as an instance's own stopped/running states); KeepVolume
+// leaves the volume present and orphaned, for a redeploy under the same appId later.
+func Delete(opts DeleteOptions) error {
+	hostID, err := currentHostID()
+	if err != nil {
+		return fmt.Errorf("reading this host's own id: %w", err)
+	}
+
+	desired, err := readDesired(hostID)
+	if err != nil {
+		return err
+	}
+
+	idx := -1
+	for i := range desired.Instances {
+		if desired.Instances[i].AppID == opts.App {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return fmt.Errorf("no app named %q in desired.json", opts.App)
+	}
+	volumeID := desired.Instances[idx].VolumeID
+	desired.Instances = append(desired.Instances[:idx], desired.Instances[idx+1:]...)
+
+	if !opts.KeepVolume {
+		for i := range desired.Volumes {
+			if desired.Volumes[i].VolumeID == volumeID {
+				desired.Volumes[i].DesiredState = "absent"
+			}
+		}
+	}
+
+	return writeDesired(desired)
+}
+
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {

@@ -155,6 +155,58 @@ func TestARedeployKeepsOldEnvironmentAndOverlaysNewKeys(t *testing.T) {
 	}
 }
 
+func TestDeleteRemovesTheInstanceAndMarksItsVolumeAbsent(t *testing.T) {
+	dir := withTempHost(t)
+	binary := writeFakeBinary(t, dir, "my-server", "v1")
+
+	if _, err := Run(Options{
+		BinaryPath: binary, App: "my-app", HTTPPort: 8080,
+		VCPUCount: 1, MemoryMib: 256, VolumeSizeMib: 512,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if err := Delete(DeleteOptions{App: "my-app"}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	desired := readBackDesired(t)
+	if len(desired.Instances) != 0 {
+		t.Errorf("instance was not removed: %+v", desired.Instances)
+	}
+	if len(desired.Volumes) != 1 || desired.Volumes[0].DesiredState != "absent" {
+		t.Errorf("volume should be marked absent, got %+v", desired.Volumes)
+	}
+}
+
+func TestDeleteWithKeepVolumeLeavesTheVolumePresent(t *testing.T) {
+	dir := withTempHost(t)
+	binary := writeFakeBinary(t, dir, "my-server", "v1")
+
+	if _, err := Run(Options{
+		BinaryPath: binary, App: "my-app", HTTPPort: 8080,
+		VCPUCount: 1, MemoryMib: 256, VolumeSizeMib: 512,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if err := Delete(DeleteOptions{App: "my-app", KeepVolume: true}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	desired := readBackDesired(t)
+	if len(desired.Volumes) != 1 || desired.Volumes[0].DesiredState != "present" {
+		t.Errorf("volume should still be present, got %+v", desired.Volumes)
+	}
+}
+
+func TestDeleteOfAnUnknownAppIsAnError(t *testing.T) {
+	withTempHost(t)
+	if err := Delete(DeleteOptions{App: "never-deployed"}); err == nil {
+		t.Fatal("expected Delete to refuse an app that was never deployed")
+	}
+}
+
 func TestADeployRefusesAHostIdItDoesNotMatch(t *testing.T) {
 	dir := withTempHost(t)
 	binary := writeFakeBinary(t, dir, "my-server", "v1")

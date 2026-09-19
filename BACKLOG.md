@@ -2,18 +2,15 @@
 
 ## Next
 
-- Cross-compile `nibr` for `linux/amd64` and get it onto `db9` itself, so it can be run there
-  instead of only tested locally. Transfer uses a battle-tested library
-  (`golang.org/x/crypto/ssh` + `github.com/pkg/sftp`), not a hand-rolled shell-out (deliberate
-  choice, not an oversight).
-- Live end-to-end test against `db9` once its `nibrunnerd` is running the
-  `fix/report-first-start-failure` build: confirm `nibr run` converges a real app, and that a
-  slot-exhaustion failure now shows up via `nibr apps status` instead of vanishing silently.
+- Fold the transfer step nibr itself: today, getting the cross-compiled binary onto `db9` is a
+  one-off local HTTP server, done by hand outside `nibr`. A `nibr` subcommand for this should use a
+  battle-tested library (`golang.org/x/crypto/ssh` + `github.com/pkg/sftp`), not a hand-rolled
+  shell-out (deliberate choice, not an oversight).
 
 ## Known gaps
 
-- `apps update` / `apps delete` are not implemented yet: only `run`, `apps list`, `apps status`,
-  `apps logs`.
+- `apps update` is not implemented yet: only `run` (which redeploys in place), `apps list`,
+  `apps status`, `apps logs`, `apps delete`.
 - A redeploy never changes an existing volume's `sizeBytes`, even if `--volume-mib` is given a
   different value on the second `run`. Intentional for now (shrinking a live volume is dangerous;
   growing it needs more thought about whether nibrunnerd resizes in place), but undocumented in

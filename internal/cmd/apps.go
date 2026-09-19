@@ -21,6 +21,7 @@ func newAppsCmd() *cobra.Command {
 	cmd.AddCommand(newAppsListCmd())
 	cmd.AddCommand(newAppsStatusCmd())
 	cmd.AddCommand(newAppsLogsCmd())
+	cmd.AddCommand(newAppsDeleteCmd())
 	return cmd
 }
 
@@ -141,6 +142,29 @@ func newAppsLogsCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&app, "app", "", "the app whose log to print (required)")
 	cmd.Flags().IntVarP(&lines, "lines", "n", 100, "how many lines from the end to print")
+	cmd.MarkFlagRequired("app")
+	return cmd
+}
+
+func newAppsDeleteCmd() *cobra.Command {
+	var (
+		app        string
+		keepVolume bool
+	)
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Remove an app from this host, undeploying its microVM",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := deploy.Delete(deploy.DeleteOptions{App: app, KeepVolume: keepVolume}); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "removed %s from desired.json; nibrunnerd will tear it down on its next pass\n", app)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&app, "app", "", "the app to delete (required)")
+	cmd.Flags().BoolVar(&keepVolume, "keep-volume", false, "leave the app's volume in place instead of marking it absent")
 	cmd.MarkFlagRequired("app")
 	return cmd
 }
