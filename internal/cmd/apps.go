@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -126,6 +127,9 @@ func newAppsLogsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := fmt.Sprintf("/var/lib/nibrunner/logs/%s.log", app)
 			data, err := remote.ReadFile(path)
+			if errors.Is(err, remote.ErrNotExist) {
+				return fmt.Errorf("no log file yet for %q: nibrunnerd writes one once it boots the instance, which happens on its own reconcile pass after `nibr run` returns, not immediately; check `nibr apps status --app %s` and try again shortly", app, app)
+			}
 			if err != nil {
 				return fmt.Errorf("reading %s: %w", path, err)
 			}

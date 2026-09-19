@@ -7,7 +7,9 @@
   digest, then read-modify-writes `/var/lib/nibrunner/desired.json` atomically (temp file +
   rename, same filesystem, so nibrunnerd's watcher never observes a partial document).
 - `nibr apps list` / `nibr apps status --app <name>` / `nibr apps logs --app <name> [-n N]` read
-  `reported.json` and the per-app log file.
+  `reported.json` and the per-app log file. `apps logs` on an app that has not booted yet (`nibr
+  run` returns as soon as desired.json is written, before nibrunnerd's next reconcile pass boots
+  the instance) says so plainly, instead of a bare "file does not exist".
 - `nibr apps delete --app <name> [--keep-volume]` removes an app's instance from desired.json, so
   nibrunnerd tears its microVM down on its next reconcile pass, and marks its volume absent unless
   `--keep-volume` is given.
