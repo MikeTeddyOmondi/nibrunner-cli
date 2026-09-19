@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed: `nibr run` with no `--env` at all used to write `"environment": null` into desired.json
+  on a fresh deploy (a nil Go map marshals to JSON null). nibrunnerd's Rust side requires an
+  actual map there, so a null failed the whole document's parse and stopped reconciliation for
+  every app on the host, not just the new one. Caught live on db9 and hand-patched; `nibr` now
+  always writes `"environment": {}` when none is given.
 - `nibr run <binary> --app <name> --port <n> [...]` deploys a binary: hashes it, copies it
   content-addressed into `/var/lib/nibrunner/artifact-store/`, verifies the copy against the
   digest, then read-modify-writes `/var/lib/nibrunner/desired.json` atomically (temp file +

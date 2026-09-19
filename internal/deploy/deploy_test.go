@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"nibrunner-cli/internal/protocol"
@@ -105,6 +106,36 @@ func TestFreshDeployWritesAWholeDocumentTheDaemonCanRead(t *testing.T) {
 	}
 	if string(got) != "pretend-binary-bytes" {
 		t.Errorf("artifact bytes = %q", got)
+	}
+}
+
+// A nil Go map marshals to JSON null, and nibrunnerd's Rust side requires an actual map for
+// environment; a null there fails the WHOLE document's parse, breaking reconciliation for every
+// app on the host, not just the new one. Caught live on db9: a nibr run with no --env at all
+// took down reconciliation host-wide until desired.json was hand-patched.
+func TestFreshDeployWithNoEnvWritesAnEmptyMapNotNull(t *testing.T) {
+	dir := withTempHost(t)
+	binary := writeFakeBinary(t, dir, "my-server", "v1")
+
+	if _, err := Run(Options{
+		BinaryPath: binary, App: "my-app", HTTPPort: 8080,
+		VCPUCount: 1, MemoryMib: 256, VolumeSizeMib: 512,
+		// Env deliberately left nil.
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	raw, err := os.ReadFile(DesiredPath)
+	if err != nil {
+		t.Fatalf("reading desired.json back: %v", err)
+	}
+	if strings.Contains(string(raw), `"environment":null`) || strings.Contains(string(raw), `"environment": null`) {
+		t.Fatalf("desired.json wrote a null environment, which nibrunnerd cannot parse:\n%s", raw)
+	}
+
+	desired := readBackDesired(t)
+	if desired.Instances[0].Config.Command.Environment == nil {
+		t.Error("Environment should be an empty map, not nil, once round-tripped through JSON")
 	}
 }
 

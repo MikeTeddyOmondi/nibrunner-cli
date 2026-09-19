@@ -95,6 +95,13 @@ func Run(opts Options) (*Result, error) {
 		args = append(args, opts.DataDirFlag, filepath.Join(workingDir, "data"))
 	}
 
+	environment := opts.Env
+	if environment == nil {
+		// A nil Go map marshals to JSON null, and nibrunnerd's Rust side requires an actual map
+		// there; a null would fail the whole document's parse, not just this instance's.
+		environment = map[string]string{}
+	}
+
 	health := protocol.DefaultHealthCheck()
 	if opts.HealthKind != "" {
 		health.Kind = opts.HealthKind
@@ -120,7 +127,7 @@ func Run(opts Options) (*Result, error) {
 				Program:          destinationPath,
 				Args:             args,
 				WorkingDirectory: workingDir,
-				Environment:      opts.Env,
+				Environment:      environment,
 			},
 			Resources:     protocol.Resources{VCPUCount: opts.VCPUCount, MemoryMib: opts.MemoryMib},
 			HealthCheck:   health,
