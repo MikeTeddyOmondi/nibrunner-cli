@@ -231,6 +231,41 @@ func TestDeleteWithKeepVolumeLeavesTheVolumePresent(t *testing.T) {
 	}
 }
 
+// Caught live on db9: deleting an app marks its volume absent, and a later redeploy under the
+// same appId used to leave that volume absent forever, since upsertVolume only checked whether
+// the VolumeID already existed, not its DesiredState. nibrunnerd then refused to serve the
+// instance, since it points at a volume the document itself says is gone.
+func TestARedeployAfterDeleteRevivesTheVolume(t *testing.T) {
+	dir := withTempHost(t)
+	binary := writeFakeBinary(t, dir, "my-server", "v1")
+
+	if _, err := Run(Options{
+		BinaryPath: binary, App: "my-app", HTTPPort: 8080,
+		VCPUCount: 1, MemoryMib: 256, VolumeSizeMib: 512,
+	}); err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+	if err := Delete(DeleteOptions{App: "my-app"}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	afterDelete := readBackDesired(t)
+	if afterDelete.Volumes[0].DesiredState != "absent" {
+		t.Fatalf("test setup: expected the volume to be absent after Delete, got %+v", afterDelete.Volumes[0])
+	}
+
+	if _, err := Run(Options{
+		BinaryPath: binary, App: "my-app", HTTPPort: 8080,
+		VCPUCount: 1, MemoryMib: 256, VolumeSizeMib: 512,
+	}); err != nil {
+		t.Fatalf("redeploy Run: %v", err)
+	}
+
+	desired := readBackDesired(t)
+	if len(desired.Volumes) != 1 || desired.Volumes[0].DesiredState != "present" {
+		t.Errorf("a redeploy under the same appId must revive an absent volume, got %+v", desired.Volumes)
+	}
+}
+
 func TestDeleteOfAnUnknownAppIsAnError(t *testing.T) {
 	withTempHost(t)
 	if err := Delete(DeleteOptions{App: "never-deployed"}); err == nil {

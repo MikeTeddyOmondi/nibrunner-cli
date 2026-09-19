@@ -312,8 +312,16 @@ func upsertInstance(instances []protocol.DesiredInstance, instance protocol.Desi
 func upsertVolume(volumes []protocol.DesiredVolume, volume protocol.DesiredVolume) []protocol.DesiredVolume {
 	for i := range volumes {
 		if volumes[i].VolumeID == volume.VolumeID {
-			// A volume already present keeps its size: shrinking one out from under a running
-			// app's data is not something a redeploy should ever do by accident.
+			// A volume marked absent, left behind by an earlier `apps delete` under the same
+			// appId, must come back to life on a redeploy, or the app can never start again:
+			// nibrunnerd refuses to serve an instance pointing at a volume it was told is gone.
+			if volumes[i].DesiredState == "absent" {
+				volumes[i].DesiredState = "present"
+				volumes[i].SizeBytes = volume.SizeBytes
+				return volumes
+			}
+			// Otherwise a volume already present keeps its size: shrinking one out from under a
+			// running app's data is not something a redeploy should ever do by accident.
 			return volumes
 		}
 	}

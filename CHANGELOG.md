@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed: `nibr apps delete` marks an app's volume absent; redeploying under the same appId used
+  to leave it absent forever, since `nibr run`'s volume upsert only checked whether the volumeId
+  already existed, not its desiredState, so nibrunnerd kept refusing to serve the new instance
+  ("this host does not serve <volumeId>"). Caught live on db9 and hand-patched; a redeploy now
+  revives an absent volume back to present.
 - Fixed: `nibr run` with no `--env` at all used to write `"environment": null` into desired.json
   on a fresh deploy (a nil Go map marshals to JSON null). nibrunnerd's Rust side requires an
   actual map there, so a null failed the whole document's parse and stopped reconciliation for
