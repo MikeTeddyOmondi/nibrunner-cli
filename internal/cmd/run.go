@@ -15,6 +15,8 @@ func newRunCmd() *cobra.Command {
 		app         string
 		port        int
 		argsFlag    string
+		argTokens   []string
+		program     string
 		env         map[string]string
 		dataDirFlag string
 		vcpu        int
@@ -39,15 +41,20 @@ func newRunCmd() *cobra.Command {
 				return fmt.Errorf("--health-kind http needs --health-path")
 			}
 
+			// --args is space-split, for simple cases; --arg is repeatable and takes each
+			// token exactly as given, for anything with quoting or embedded spaces (e.g. a
+			// `/bin/sh -c "a; exec b"` wrapper, where --program overrides the binary itself).
 			var binArgs []string
 			if argsFlag != "" {
 				binArgs = strings.Fields(argsFlag)
 			}
+			binArgs = append(binArgs, argTokens...)
 
 			result, err := deploy.Run(deploy.Options{
 				BinaryPath:       binaryPath,
 				App:              app,
 				HTTPPort:         port,
+				Program:          program,
 				Args:             binArgs,
 				Env:              env,
 				WorkingDirectory: workingDir,
@@ -71,6 +78,8 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&app, "app", "", "the app's identifier (required)")
 	cmd.Flags().IntVar(&port, "port", 0, "the guest port the binary listens on (required)")
 	cmd.Flags().StringVar(&argsFlag, "args", "", `arguments passed to the binary, e.g. --args "serve --verbose"`)
+	cmd.Flags().StringArrayVar(&argTokens, "arg", nil, `one exact argument, repeatable; use for anything --args's space-split would mangle, e.g. --arg -c --arg "a && exec b"`)
+	cmd.Flags().StringVar(&program, "program", "", "override the program run instead of the deployed binary itself, e.g. /bin/sh, with the binary still deployed and reachable under --working-dir")
 	cmd.Flags().StringToStringVar(&env, "env", nil, "KEY=VALUE, repeatable; merged into the app's existing environment")
 	cmd.Flags().StringVar(&workingDir, "working-dir", "/app", "the guest directory the binary runs from and writes under")
 	cmd.Flags().StringVar(&dataDirFlag, "data-dir-flag", "", "e.g. --data-dir; appended with <working-dir>/data if set")

@@ -33,6 +33,7 @@ type Options struct {
 	BinaryPath       string
 	App              string
 	HTTPPort         int
+	Program          string // if set, run this instead of the deployed binary (e.g. /bin/sh); the binary is still deployed at destinationPath for it to exec
 	Args             []string
 	Env              map[string]string
 	WorkingDirectory string
@@ -110,6 +111,11 @@ func Run(opts Options) (*Result, error) {
 		health.Path = opts.HealthPath
 	}
 
+	program := opts.Program
+	if program == "" {
+		program = destinationPath
+	}
+
 	instance := protocol.DesiredInstance{
 		AppID:        opts.App,
 		DeploymentID: deploymentID,
@@ -124,7 +130,7 @@ func Run(opts Options) (*Result, error) {
 		Config: protocol.AppConfig{
 			HTTPPort: opts.HTTPPort,
 			Command: protocol.Command{
-				Program:          destinationPath,
+				Program:          program,
 				Args:             args,
 				WorkingDirectory: workingDir,
 				Environment:      environment,

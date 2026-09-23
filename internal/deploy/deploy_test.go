@@ -139,6 +139,29 @@ func TestFreshDeployWithNoEnvWritesAnEmptyMapNotNull(t *testing.T) {
 	}
 }
 
+func TestProgramOverridesTheDeployedBinaryAsWhatRuns(t *testing.T) {
+	dir := withTempHost(t)
+	binary := writeFakeBinary(t, dir, "my-server", "v1")
+
+	if _, err := Run(Options{
+		BinaryPath: binary, App: "my-app", HTTPPort: 8080,
+		VCPUCount: 1, MemoryMib: 256, VolumeSizeMib: 512,
+		Program: "/bin/sh",
+		Args:    []string{"-c", "exec ./my-server"},
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	desired := readBackDesired(t)
+	cmd := desired.Instances[0].Config.Command
+	if cmd.Program != "/bin/sh" {
+		t.Errorf("program = %q, want /bin/sh", cmd.Program)
+	}
+	if len(cmd.Args) != 2 || cmd.Args[0] != "-c" || cmd.Args[1] != "exec ./my-server" {
+		t.Errorf("args = %v, want [-c, \"exec ./my-server\"] as exact tokens", cmd.Args)
+	}
+}
+
 func TestARedeployKeepsOldEnvironmentAndOverlaysNewKeys(t *testing.T) {
 	dir := withTempHost(t)
 	binary := writeFakeBinary(t, dir, "my-server", "v1")

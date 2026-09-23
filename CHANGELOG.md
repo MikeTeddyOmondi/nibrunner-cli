@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `nibr run` gains `--program` (run something other than the deployed binary, e.g. `/bin/sh`, with
+  the binary still deployed and reachable under `--working-dir`) and repeatable `--arg` (one exact
+  argument per occurrence, unlike `--args`'s naive space-split, for anything with embedded spaces
+  or quoting: a shell wrapper doing idempotent first-boot setup before exec'ing the real program).
 - Fixed: `nibr apps delete` marks an app's volume absent; redeploying under the same appId used
   to leave it absent forever, since `nibr run`'s volume upsert only checked whether the volumeId
   already existed, not its desiredState, so nibrunnerd kept refusing to serve the new instance
