@@ -16,7 +16,20 @@
   growing it needs more thought about whether nibrunnerd resizes in place), but undocumented in
   `--help`.
 - No flag surface yet for raw ports (`config.ports`), checkpoints, or exports: `desired.json`
-  supports all three, `nibr` only touches `instances` and `volumes`.
+  supports all three, `nibr` only touches `instances` and `volumes`. Learned deploying OpenCloud
+  (a real multi-service app) that raw ports have a real structural limit worth documenting before
+  building the flag: nibrunnerd refuses a `guestPort` that also equals `httpPort` ("guest port
+  claimed twice"), and any health check (including `boot-completed`) still probes `httpPort`
+  specifically, so an app with only one real listening port cannot use raw ports for it without a
+  second, genuinely-listening port to anchor the health check on. Worse: an app that self-verifies
+  its own OIDC issuer (or does anything else requiring its external and internal view of its own
+  address to match) cannot use raw ports at all, structurally, since nibrunnerd always exposes raw
+  ports on a *different* host port than the app's own guest port, and the guest can never reach its
+  own external address to begin with. For that shape of app, the working pattern is an SSH tunnel
+  straight to `guestIpv4:httpPort` (`ssh -L <port>:<guestIpv4>:<httpPort> <host>`), with `OC_URL`
+  (or equivalent) pointed at `127.0.0.1:<port>` so the app's internal and external self-view match
+  exactly. Raises the priority of the SSH transport item above: the same battle-tested library
+  could also grow a `nibr tunnel` command for this, instead of a hand-typed `ssh -L`.
 - `internal/remote` and `internal/protocol` have no tests of their own; coverage today is only
   the integration-style tests in `internal/deploy` that exercise them indirectly.
 

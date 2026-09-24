@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Real-world validation: used `--program`/`--arg` to deploy OpenCloud (a full multi-service Go
+  app, not a toy binary) via `nibr run`, with an idempotent init-then-serve shell wrapper. Surfaced
+  and fixed six separate instances of the same upstream bug class in OpenCloud itself (several
+  internal service URLs default to the literal hostname `localhost`, which this guest image cannot
+  resolve), and confirmed the raw-ports/OIDC structural limit now written up in BACKLOG.md.
 - `nibr run` gains `--program` (run something other than the deployed binary, e.g. `/bin/sh`, with
   the binary still deployed and reachable under `--working-dir`) and repeatable `--arg` (one exact
   argument per occurrence, unlike `--args`'s naive space-split, for anything with embedded spaces
