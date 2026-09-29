@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Updated for nibrunner v2026.9.0 (the fork's first tagged upstream release), which added a
+  required top-level `revision` field to `desired.json` (a control-plane version string;
+  nibrunnerd refuses a document without one outright). `writeDesired` now bumps it fresh on every
+  write, the one place every write goes through, so no call site can forget it. `reported.json`
+  gained matching `acceptedDigest`/`acceptedRevision` fields, now surfaced through a new `nibr host
+  status` command. Also removed `lastHealthyAt` from `ReportedInstance` and `nibr apps status`:
+  nibrunnerd no longer writes it (moved to a new metrics endpoint outside `reported.json`).
 - Real-world validation: used `--program`/`--arg` to deploy OpenCloud (a full multi-service Go
   app, not a toy binary) via `nibr run`, with an idempotent init-then-serve shell wrapper. Surfaced
   and fixed six separate instances of the same upstream bug class in OpenCloud itself (several

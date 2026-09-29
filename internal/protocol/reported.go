@@ -15,7 +15,12 @@ type HostReportedState struct {
 	Instances   []ReportedInstance   `json:"instances"`
 	Checkpoints []ReportedCheckpoint `json:"checkpoints"`
 	Exports     []ReportedExport     `json:"exports"`
-	Message     *string              `json:"message"`
+	// AcceptedDigest/AcceptedRevision name the desired.json this host actually took up, as of
+	// nibrunner v2026.9.0: the sha256 of the file, and the revision it named, if it named one.
+	// Both absent until a document has been taken up at all.
+	AcceptedDigest   *string `json:"acceptedDigest,omitempty"`
+	AcceptedRevision *string `json:"acceptedRevision,omitempty"`
+	Message          *string `json:"message"`
 }
 
 type Capacity struct {
@@ -44,20 +49,23 @@ type ReportedVolume struct {
 // ReportedInstance's HostPort and GuestIpv4 are both optional: absent for a record whose app
 // never held a network slot: a start refused before one existed, such as the host being laid
 // out for fewer apps than it is asked to run (nibrunner's own fix/report-first-start-failure).
+//
+// As of nibrunner v2026.9.0, per-instance usage metrics (meters, lastHealthyAt, compute) moved
+// out of reported.json entirely, onto a dedicated metrics/scrape endpoint this struct does not
+// read. `nibr apps status` no longer shows a lastHealthyAt line as a result.
 type ReportedInstance struct {
-	AppID         string           `json:"appId"`
-	DeploymentID  string           `json:"deploymentId"`
-	State         string           `json:"state"`
-	HostPort      *int             `json:"hostPort,omitempty"`
-	GuestIpv4     *string          `json:"guestIpv4,omitempty"`
-	LayerDigests  []string         `json:"layerDigests"`
-	RestartCount  int              `json:"restartCount"`
-	LastRestart   *ReportedRestart `json:"lastRestart,omitempty"`
-	StartedAt     *string          `json:"startedAt,omitempty"`
-	LastHealthyAt *string          `json:"lastHealthyAt,omitempty"`
-	ConvergedAt   *string          `json:"convergedAt,omitempty"`
-	LastExitCode  *int             `json:"lastExitCode,omitempty"`
-	Message       *string          `json:"message,omitempty"`
+	AppID        string           `json:"appId"`
+	DeploymentID string           `json:"deploymentId"`
+	State        string           `json:"state"`
+	HostPort     *int             `json:"hostPort,omitempty"`
+	GuestIpv4    *string          `json:"guestIpv4,omitempty"`
+	LayerDigests []string         `json:"layerDigests"`
+	RestartCount int              `json:"restartCount"`
+	LastRestart  *ReportedRestart `json:"lastRestart,omitempty"`
+	StartedAt    *string          `json:"startedAt,omitempty"`
+	ConvergedAt  *string          `json:"convergedAt,omitempty"`
+	LastExitCode *int             `json:"lastExitCode,omitempty"`
+	Message      *string          `json:"message,omitempty"`
 }
 
 type ReportedRestart struct {

@@ -32,6 +32,12 @@
   could also grow a `nibr tunnel` command for this, instead of a hand-typed `ssh -L`.
 - `internal/remote` and `internal/protocol` have no tests of their own; coverage today is only
   the integration-style tests in `internal/deploy` that exercise them indirectly.
+- As of nibrunner v2026.9.0, per-instance usage metrics (`meters`, `lastHealthyAt`, `compute`,
+  per-volume `usage`) moved out of `reported.json` entirely, onto a new metrics/scrape endpoint
+  (an OpenAPI-documented filesystem socket, `GET /apps/{appId}/files`, read-only: confirmed no
+  write route exists anywhere in the daemon). `nibr apps status` lost its `lastHealthyAt` line as
+  a result (removed rather than left dead). Reading that new endpoint to restore equivalent
+  status info is a real feature gap, not yet started.
 
 ## Ideas, not committed
 

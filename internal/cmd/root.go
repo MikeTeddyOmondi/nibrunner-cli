@@ -19,5 +19,6 @@ It runs on the same host as nibrunnerd; there is nothing here for a remote targe
 	}
 	root.AddCommand(newRunCmd())
 	root.AddCommand(newAppsCmd())
+	root.AddCommand(newHostCmd())
 	return root
 }

@@ -10,8 +10,12 @@ package protocol
 // do except by writing that document"). Any tool that talks to nibrunnerd writes this file whole,
 // every time.
 type HostDesiredState struct {
-	Schema      string              `json:"$schema,omitempty"`
-	HostID      string              `json:"hostId"`
+	Schema string `json:"$schema,omitempty"`
+	HostID string `json:"hostId"`
+	// Required as of nibrunner v2026.9.0: 1-128 printable ASCII characters, no spaces.
+	// nibrunnerd does not read it, only carries it back as reported.json's acceptedRevision;
+	// a document without one is refused outright, so every write needs a value here.
+	Revision    string              `json:"revision"`
 	Volumes     []DesiredVolume     `json:"volumes"`
 	Instances   []DesiredInstance   `json:"instances"`
 	Checkpoints []DesiredCheckpoint `json:"checkpoints"`
@@ -122,7 +126,7 @@ type DesiredExport struct {
 	DesiredState string            `json:"desiredState"`
 }
 
-const SchemaURL = "https://raw.githubusercontent.com/ilbertt/nibrunner/main/crates/protocol/schema/desired-state.schema.json"
+const SchemaURL = "https://raw.githubusercontent.com/ilbertt/nibrunner/main/crates/protocol/schema/desired.schema.json"
 
 // DefaultHealthCheck is a sane, working-for-anything default: a TCP accept check. "http" needs a
 // real path the app actually serves, which run's caller may not know; tcp only needs the app to

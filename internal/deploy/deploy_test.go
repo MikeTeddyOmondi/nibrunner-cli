@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -55,6 +56,38 @@ func readBackDesired(t *testing.T) protocol.HostDesiredState {
 		t.Fatalf("desired.json does not parse: %v\n%s", err, data)
 	}
 	return desired
+}
+
+// nibrunner v2026.9.0 requires a top-level "revision" on every desired.json: 1-128 printable
+// ASCII characters, no spaces. A document without one is refused outright, so every write this
+// package makes must carry one.
+var revisionPattern = regexp.MustCompile(`^[\x21-\x7e]{1,128}$`)
+
+func TestEveryWriteCarriesAValidRevision(t *testing.T) {
+	dir := withTempHost(t)
+	binary := writeFakeBinary(t, dir, "my-server", "v1")
+
+	if _, err := Run(Options{
+		BinaryPath: binary, App: "my-app", HTTPPort: 8080,
+		VCPUCount: 1, MemoryMib: 256, VolumeSizeMib: 512,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	first := readBackDesired(t).Revision
+	if !revisionPattern.MatchString(first) {
+		t.Fatalf("revision after Run = %q, does not match nibrunnerd's required pattern", first)
+	}
+
+	if err := Delete(DeleteOptions{App: "my-app"}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	second := readBackDesired(t).Revision
+	if !revisionPattern.MatchString(second) {
+		t.Fatalf("revision after Delete = %q, does not match nibrunnerd's required pattern", second)
+	}
+	if second == first {
+		t.Error("Delete did not bump the revision from what Run left")
+	}
 }
 
 func TestFreshDeployWritesAWholeDocumentTheDaemonCanRead(t *testing.T) {

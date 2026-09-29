@@ -99,9 +99,6 @@ func newAppsStatusCmd() *cobra.Command {
 				if inst.StartedAt != nil {
 					field(out, "startedAt", *inst.StartedAt)
 				}
-				if inst.LastHealthyAt != nil {
-					field(out, "lastHealthyAt", *inst.LastHealthyAt)
-				}
 				if inst.Message != nil {
 					field(out, "message", *inst.Message)
 				}

@@ -287,7 +287,12 @@ func readDesired(hostID string) (*protocol.HostDesiredState, error) {
 	return &desired, nil
 }
 
+// writeDesired is the one place every write to desired.json goes through, so it is the one place
+// that needs to remember nibrunnerd v2026.9.0's required `revision` field: a document without one
+// is refused outright. Bumped fresh on every write, here rather than at each call site, so a
+// future caller cannot forget it.
 func writeDesired(desired *protocol.HostDesiredState) error {
+	desired.Revision = fmt.Sprintf("nibr-%d", time.Now().UnixNano())
 	data, err := json.MarshalIndent(desired, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding desired.json: %w", err)
