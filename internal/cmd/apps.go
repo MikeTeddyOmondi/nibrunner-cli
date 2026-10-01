@@ -44,25 +44,38 @@ func newAppsListCmd() *cobra.Command {
 		Short: "List every app this host reports",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reported, err := readReported()
-			if err != nil {
-				return err
-			}
-			out := cmd.OutOrStdout()
-			if len(reported.Instances) == 0 {
-				fmt.Fprintln(out, "no apps on this host")
-				return nil
-			}
-			fmt.Fprintf(out, "%-20s %-12s %-10s %s\n", "APP", "STATE", "RESTARTS", "MESSAGE")
-			for _, inst := range reported.Instances {
-				message := ""
-				if inst.Message != nil {
-					message = *inst.Message
+			var instances []protocol.ReportedInstance
+			if rc := remoteClient(); rc != nil {
+				var err error
+				instances, err = rc.ListApps()
+				if err != nil {
+					return err
 				}
-				fmt.Fprintf(out, "%-20s %-12s %-10d %s\n", inst.AppID, inst.State, inst.RestartCount, message)
+			} else {
+				reported, err := readReported()
+				if err != nil {
+					return err
+				}
+				instances = reported.Instances
 			}
+			printAppsList(cmd.OutOrStdout(), instances)
 			return nil
 		},
+	}
+}
+
+func printAppsList(out io.Writer, instances []protocol.ReportedInstance) {
+	if len(instances) == 0 {
+		fmt.Fprintln(out, "no apps on this host")
+		return
+	}
+	fmt.Fprintf(out, "%-20s %-12s %-10s %s\n", "APP", "STATE", "RESTARTS", "MESSAGE")
+	for _, inst := range instances {
+		message := ""
+		if inst.Message != nil {
+			message = *inst.Message
+		}
+		fmt.Fprintf(out, "%-20s %-12s %-10d %s\n", inst.AppID, inst.State, inst.RestartCount, message)
 	}
 }
 
@@ -73,35 +86,24 @@ func newAppsStatusCmd() *cobra.Command {
 		Short: "Show one app's reported state in full",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if rc := remoteClient(); rc != nil {
+				inst, err := rc.AppStatus(app)
+				if err != nil {
+					return err
+				}
+				printAppStatus(cmd.OutOrStdout(), *inst)
+				return nil
+			}
+
 			reported, err := readReported()
 			if err != nil {
 				return err
 			}
-			out := cmd.OutOrStdout()
 			for _, inst := range reported.Instances {
 				if inst.AppID != app {
 					continue
 				}
-				field(out, "appId", inst.AppID)
-				field(out, "deploymentId", inst.DeploymentID)
-				field(out, "state", inst.State)
-				if inst.HostPort != nil {
-					field(out, "hostPort", *inst.HostPort)
-				} else {
-					field(out, "hostPort", "(none, no slot held)")
-				}
-				if inst.GuestIpv4 != nil {
-					field(out, "guestIpv4", *inst.GuestIpv4)
-				} else {
-					field(out, "guestIpv4", "(none, no slot held)")
-				}
-				field(out, "restartCount", inst.RestartCount)
-				if inst.StartedAt != nil {
-					field(out, "startedAt", *inst.StartedAt)
-				}
-				if inst.Message != nil {
-					field(out, "message", *inst.Message)
-				}
+				printAppStatus(cmd.OutOrStdout(), inst)
 				return nil
 			}
 			return fmt.Errorf("no app named %q on this host", app)
@@ -110,6 +112,29 @@ func newAppsStatusCmd() *cobra.Command {
 	cmd.Flags().StringVar(&app, "app", "", "the app to show (required)")
 	cmd.MarkFlagRequired("app")
 	return cmd
+}
+
+func printAppStatus(out io.Writer, inst protocol.ReportedInstance) {
+	field(out, "appId", inst.AppID)
+	field(out, "deploymentId", inst.DeploymentID)
+	field(out, "state", inst.State)
+	if inst.HostPort != nil {
+		field(out, "hostPort", *inst.HostPort)
+	} else {
+		field(out, "hostPort", "(none, no slot held)")
+	}
+	if inst.GuestIpv4 != nil {
+		field(out, "guestIpv4", *inst.GuestIpv4)
+	} else {
+		field(out, "guestIpv4", "(none, no slot held)")
+	}
+	field(out, "restartCount", inst.RestartCount)
+	if inst.StartedAt != nil {
+		field(out, "startedAt", *inst.StartedAt)
+	}
+	if inst.Message != nil {
+		field(out, "message", *inst.Message)
+	}
 }
 
 func newAppsLogsCmd() *cobra.Command {
@@ -122,15 +147,26 @@ func newAppsLogsCmd() *cobra.Command {
 		Short: "Print an app's log tail",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := fmt.Sprintf("/var/lib/nibrunner/logs/%s.log", app)
-			data, err := remote.ReadFile(path)
-			if errors.Is(err, remote.ErrNotExist) {
-				return fmt.Errorf("no log file yet for %q: nibrunnerd writes one once it boots the instance, which happens on its own reconcile pass after `nibr run` returns, not immediately; check `nibr apps status --app %s` and try again shortly", app, app)
+			var data string
+			if rc := remoteClient(); rc != nil {
+				var err error
+				data, err = rc.Logs(app, lines)
+				if err != nil {
+					return err
+				}
+			} else {
+				path := fmt.Sprintf("/var/lib/nibrunner/logs/%s.log", app)
+				raw, err := remote.ReadFile(path)
+				if errors.Is(err, remote.ErrNotExist) {
+					return fmt.Errorf("no log file yet for %q: nibrunnerd writes one once it boots the instance, which happens on its own reconcile pass after `nibr run` returns, not immediately; check `nibr apps status --app %s` and try again shortly", app, app)
+				}
+				if err != nil {
+					return fmt.Errorf("reading %s: %w", path, err)
+				}
+				data = string(raw)
 			}
-			if err != nil {
-				return fmt.Errorf("reading %s: %w", path, err)
-			}
-			logLines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+
+			logLines := strings.Split(strings.TrimRight(data, "\n"), "\n")
 			if len(logLines) > lines {
 				logLines = logLines[len(logLines)-lines:]
 			}
@@ -157,6 +193,14 @@ func newAppsDeleteCmd() *cobra.Command {
 		Short: "Remove an app from this host, undeploying its microVM",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if rc := remoteClient(); rc != nil {
+				if err := rc.DeleteApp(app, keepVolume); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "removed %s from %s's desired.json; nibrunnerd will tear it down on its next pass\n", app, remoteURL)
+				return nil
+			}
+
 			if err := deploy.Delete(deploy.DeleteOptions{App: app, KeepVolume: keepVolume}); err != nil {
 				return err
 			}

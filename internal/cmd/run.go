@@ -3,11 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"nibrunner-cli/internal/deploy"
+	"nibrunner-cli/internal/remoteapi"
 )
 
 func newRunCmd() *cobra.Command {
@@ -49,6 +51,13 @@ func newRunCmd() *cobra.Command {
 				binArgs = strings.Fields(argsFlag)
 			}
 			binArgs = append(binArgs, argTokens...)
+
+			if rc := remoteClient(); rc != nil {
+				return runRemote(cmd, rc, binaryPath, deployArgs{
+					app, port, program, binArgs, env, workingDir, dataDirFlag,
+					vcpu, memoryMib, volumeMib, healthKind, healthPath, hostname,
+				})
+			}
 
 			result, err := deploy.Run(deploy.Options{
 				BinaryPath:       binaryPath,
@@ -94,4 +103,60 @@ func newRunCmd() *cobra.Command {
 	cmd.MarkFlagRequired("port")
 
 	return cmd
+}
+
+// deployArgs bundles newRunCmd's flags for runRemote, since a cobra RunE closure's local flag
+// variables don't otherwise have a convenient single value to hand off.
+type deployArgs struct {
+	app         string
+	port        int
+	program     string
+	binArgs     []string
+	env         map[string]string
+	workingDir  string
+	dataDirFlag string
+	vcpu        int
+	memoryMib   int
+	volumeMib   int
+	healthKind  string
+	healthPath  string
+	hostname    string
+}
+
+// runRemote is --remote's path through `nibr run`: upload the binary to nibrunner-api, then
+// deploy by digest. It mirrors internal/deploy.Run's own two steps (copy into the artifact
+// store, then read-modify-write desired.json) except the first step is an HTTP upload and the
+// second an HTTP POST, both performed by nibrunner-api on the target host rather than by this
+// process on local files.
+func runRemote(cmd *cobra.Command, rc *remoteapi.Client, binaryPath string, a deployArgs) error {
+	digest, _, err := rc.UploadArtifact(binaryPath)
+	if err != nil {
+		return err
+	}
+
+	result, err := rc.DeployApp(remoteapi.DeployOptions{
+		App:    a.app,
+		Digest: digest,
+		// Matches internal/deploy.Run's own default: the binary's own basename inside the
+		// guest, not the app name, so --remote and local `nibr run` behave the same way.
+		DestinationName:  filepath.Base(binaryPath),
+		HTTPPort:         a.port,
+		Program:          a.program,
+		Args:             a.binArgs,
+		Env:              a.env,
+		WorkingDirectory: a.workingDir,
+		DataDirFlag:      a.dataDirFlag,
+		VCPUCount:        a.vcpu,
+		MemoryMib:        a.memoryMib,
+		VolumeSizeMib:    a.volumeMib,
+		HealthKind:       a.healthKind,
+		HealthPath:       a.healthPath,
+		Hostname:         a.hostname,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "deployed %s\n  deploymentId: %s\n  digest:       %s\n", result.AppID, result.DeploymentID, result.Digest)
+	fmt.Fprintf(cmd.OutOrStdout(), "watch it converge with: nibr apps status --app %s --remote %s\n", result.AppID, remoteURL)
+	return nil
 }
