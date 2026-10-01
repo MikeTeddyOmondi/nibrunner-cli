@@ -12,6 +12,7 @@ import (
 	"nibrunner-cli/internal/deploy"
 	"nibrunner-cli/internal/protocol"
 	"nibrunner-cli/internal/remote"
+	"nibrunner-cli/internal/remoteapi"
 )
 
 func newAppsCmd() *cobra.Command {
@@ -38,16 +39,48 @@ func readReported() (*protocol.HostReportedState, error) {
 	return &reported, nil
 }
 
+// readDesiredHostnames maps every app currently in desired.json to its hostnames, the local
+// equivalent of what nibrunner-api's own hostnameIndex does for --remote mode: reported.json
+// never carries hostnames, so local mode cross-references desired.json the same way. Best-effort,
+// nil on any error, so a local desired.json hiccup still lets reported status print, just without
+// hostnames.
+func readDesiredHostnames() map[string][]protocol.AppHostname {
+	data, err := remote.ReadFile(deploy.DesiredPath)
+	if err != nil {
+		return nil
+	}
+	var desired protocol.HostDesiredState
+	if err := json.Unmarshal(data, &desired); err != nil {
+		return nil
+	}
+	index := make(map[string][]protocol.AppHostname, len(desired.Instances))
+	for _, inst := range desired.Instances {
+		index[inst.AppID] = inst.Hostnames
+	}
+	return index
+}
+
+func hostnameList(hostnames []protocol.AppHostname) string {
+	if len(hostnames) == 0 {
+		return "-"
+	}
+	names := make([]string, len(hostnames))
+	for i, h := range hostnames {
+		names[i] = h.Hostname
+	}
+	return strings.Join(names, ",")
+}
+
 func newAppsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List every app this host reports",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var instances []protocol.ReportedInstance
+			var views []remoteapi.AppView
 			if rc := remoteClient(); rc != nil {
 				var err error
-				instances, err = rc.ListApps()
+				views, err = rc.ListApps()
 				if err != nil {
 					return err
 				}
@@ -56,26 +89,30 @@ func newAppsListCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				instances = reported.Instances
+				hostnames := readDesiredHostnames()
+				views = make([]remoteapi.AppView, len(reported.Instances))
+				for i, inst := range reported.Instances {
+					views[i] = remoteapi.AppView{ReportedInstance: inst, Hostnames: hostnames[inst.AppID]}
+				}
 			}
-			printAppsList(cmd.OutOrStdout(), instances)
+			printAppsList(cmd.OutOrStdout(), views)
 			return nil
 		},
 	}
 }
 
-func printAppsList(out io.Writer, instances []protocol.ReportedInstance) {
-	if len(instances) == 0 {
+func printAppsList(out io.Writer, views []remoteapi.AppView) {
+	if len(views) == 0 {
 		fmt.Fprintln(out, "no apps on this host")
 		return
 	}
-	fmt.Fprintf(out, "%-20s %-12s %-10s %s\n", "APP", "STATE", "RESTARTS", "MESSAGE")
-	for _, inst := range instances {
+	fmt.Fprintf(out, "%-20s %-12s %-10s %-30s %s\n", "APP", "STATE", "RESTARTS", "HOSTNAMES", "MESSAGE")
+	for _, v := range views {
 		message := ""
-		if inst.Message != nil {
-			message = *inst.Message
+		if v.Message != nil {
+			message = *v.Message
 		}
-		fmt.Fprintf(out, "%-20s %-12s %-10d %s\n", inst.AppID, inst.State, inst.RestartCount, message)
+		fmt.Fprintf(out, "%-20s %-12s %-10d %-30s %s\n", v.AppID, v.State, v.RestartCount, hostnameList(v.Hostnames), message)
 	}
 }
 
@@ -87,11 +124,11 @@ func newAppsStatusCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if rc := remoteClient(); rc != nil {
-				inst, err := rc.AppStatus(app)
+				view, err := rc.AppStatus(app)
 				if err != nil {
 					return err
 				}
-				printAppStatus(cmd.OutOrStdout(), *inst)
+				printAppStatus(cmd.OutOrStdout(), *view)
 				return nil
 			}
 
@@ -99,11 +136,12 @@ func newAppsStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			hostnames := readDesiredHostnames()
 			for _, inst := range reported.Instances {
 				if inst.AppID != app {
 					continue
 				}
-				printAppStatus(cmd.OutOrStdout(), inst)
+				printAppStatus(cmd.OutOrStdout(), remoteapi.AppView{ReportedInstance: inst, Hostnames: hostnames[inst.AppID]})
 				return nil
 			}
 			return fmt.Errorf("no app named %q on this host", app)
@@ -114,26 +152,27 @@ func newAppsStatusCmd() *cobra.Command {
 	return cmd
 }
 
-func printAppStatus(out io.Writer, inst protocol.ReportedInstance) {
-	field(out, "appId", inst.AppID)
-	field(out, "deploymentId", inst.DeploymentID)
-	field(out, "state", inst.State)
-	if inst.HostPort != nil {
-		field(out, "hostPort", *inst.HostPort)
+func printAppStatus(out io.Writer, v remoteapi.AppView) {
+	field(out, "appId", v.AppID)
+	field(out, "deploymentId", v.DeploymentID)
+	field(out, "state", v.State)
+	if v.HostPort != nil {
+		field(out, "hostPort", *v.HostPort)
 	} else {
 		field(out, "hostPort", "(none, no slot held)")
 	}
-	if inst.GuestIpv4 != nil {
-		field(out, "guestIpv4", *inst.GuestIpv4)
+	if v.GuestIpv4 != nil {
+		field(out, "guestIpv4", *v.GuestIpv4)
 	} else {
 		field(out, "guestIpv4", "(none, no slot held)")
 	}
-	field(out, "restartCount", inst.RestartCount)
-	if inst.StartedAt != nil {
-		field(out, "startedAt", *inst.StartedAt)
+	field(out, "hostnames", hostnameList(v.Hostnames))
+	field(out, "restartCount", v.RestartCount)
+	if v.StartedAt != nil {
+		field(out, "startedAt", *v.StartedAt)
 	}
-	if inst.Message != nil {
-		field(out, "message", *inst.Message)
+	if v.Message != nil {
+		field(out, "message", *v.Message)
 	}
 }
 

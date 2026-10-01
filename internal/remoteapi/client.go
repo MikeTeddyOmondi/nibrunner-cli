@@ -207,8 +207,19 @@ func (c *Client) DeleteApp(app string, keepVolume bool) error {
 	return nil
 }
 
-// ListApps calls GET /v1/apps, the remote equivalent of reading reported.json's instances.
-func (c *Client) ListApps() ([]protocol.ReportedInstance, error) {
+// AppView is an app's reported status enriched with its hostnames, mirroring nibrunner-api's own
+// AppView: reported.json never carries hostnames (there's nothing for nibrunnerd to report back
+// about one beyond what it was already told), so nibrunner-api cross-references desired.json and
+// returns both together. local (non-remote) `nibr apps list`/`status` build the same shape by
+// reading desired.json directly, see internal/cmd/apps.go.
+type AppView struct {
+	protocol.ReportedInstance
+	Hostnames []protocol.AppHostname `json:"hostnames"`
+}
+
+// ListApps calls GET /v1/apps, the remote equivalent of reading reported.json's instances
+// (enriched with hostnames from desired.json, see AppView).
+func (c *Client) ListApps() ([]AppView, error) {
 	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/v1/apps", nil)
 	if err != nil {
 		return nil, err
@@ -220,7 +231,7 @@ func (c *Client) ListApps() ([]protocol.ReportedInstance, error) {
 	defer resp.Body.Close()
 
 	var out struct {
-		Instances []protocol.ReportedInstance `json:"instances"`
+		Instances []AppView `json:"instances"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("decoding apps list: %w", err)
@@ -229,8 +240,8 @@ func (c *Client) ListApps() ([]protocol.ReportedInstance, error) {
 }
 
 // AppStatus calls GET /v1/apps/:app, the remote equivalent of finding one instance in
-// reported.json.
-func (c *Client) AppStatus(app string) (*protocol.ReportedInstance, error) {
+// reported.json (enriched with hostnames from desired.json, see AppView).
+func (c *Client) AppStatus(app string) (*AppView, error) {
 	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/v1/apps/"+url.PathEscape(app), nil)
 	if err != nil {
 		return nil, err
@@ -241,11 +252,11 @@ func (c *Client) AppStatus(app string) (*protocol.ReportedInstance, error) {
 	}
 	defer resp.Body.Close()
 
-	var inst protocol.ReportedInstance
-	if err := json.NewDecoder(resp.Body).Decode(&inst); err != nil {
+	var view AppView
+	if err := json.NewDecoder(resp.Body).Decode(&view); err != nil {
 		return nil, fmt.Errorf("decoding app status: %w", err)
 	}
-	return &inst, nil
+	return &view, nil
 }
 
 // HostStatus is GET /v1/host's response shape: the host-level subset of reported.json
