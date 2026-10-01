@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -14,30 +13,38 @@ import (
 
 func newRunCmd() *cobra.Command {
 	var (
-		app         string
-		port        int
-		argsFlag    string
-		argTokens   []string
-		program     string
-		env         map[string]string
-		dataDirFlag string
-		vcpu        int
-		memoryMib   int
-		volumeMib   int
-		healthKind  string
-		healthPath  string
-		hostname    string
-		workingDir  string
+		app           string
+		port          int
+		argsFlag      string
+		argTokens     []string
+		program       string
+		env           map[string]string
+		dataDirFlag   string
+		vcpu          int
+		memoryMib     int
+		volumeMib     int
+		healthKind    string
+		healthPath    string
+		hostname      string
+		workingDir    string
+		archiveMember string
+		sha256sum     string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "run <binary>",
 		Short: "Deploy a binary as an app on this host",
-		Args:  cobra.ExactArgs(1),
+		Long: `Deploy a binary as an app on this host.
+
+<binary> is a local path, as always, or now also an http(s) URL (e.g. a GitHub release asset).
+If what that resolves to is a .tar.gz, .tgz or .zip, --archive-member names which file inside it
+to deploy; a plain .gz is unwrapped automatically since it can only ever hold one.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			binaryPath := args[0]
-			if _, err := os.Stat(binaryPath); err != nil {
-				return fmt.Errorf("binary not found: %w", err)
+			binaryPath, cleanup, err := resolveBinary(args[0], archiveMember, sha256sum)
+			defer cleanup()
+			if err != nil {
+				return err
 			}
 			if healthKind == "http" && healthPath == "" {
 				return fmt.Errorf("--health-kind http needs --health-path")
@@ -98,6 +105,8 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&healthKind, "health-kind", "tcp", "http | tcp | boot-completed")
 	cmd.Flags().StringVar(&healthPath, "health-path", "", "required if --health-kind is http")
 	cmd.Flags().StringVar(&hostname, "hostname", "", "route the proxy to this app on this hostname")
+	cmd.Flags().StringVar(&archiveMember, "archive-member", "", "path (or unambiguous basename) of the binary inside <binary>, when that's a .tar.gz, .tgz or .zip")
+	cmd.Flags().StringVar(&sha256sum, "sha256", "", "expected sha256 of the resolved binary; refuses to deploy on a mismatch")
 
 	cmd.MarkFlagRequired("app")
 	cmd.MarkFlagRequired("port")
