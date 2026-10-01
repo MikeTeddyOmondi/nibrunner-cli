@@ -51,6 +51,31 @@ Other flags: `--working-dir` (default `/app`), `--data-dir-flag` (appended with
 `<working-dir>/data` if set), `--health-path` (required if `--health-kind http`), `--hostname`
 (route the proxy to this app on a hostname).
 
+### Deploying straight from a URL
+
+`<binary>` can be an http(s) URL instead of a local path, such as a GitHub release asset. Works
+in both local and `--remote` mode exactly the same way; in `--remote` mode, this machine still
+does the downloading (nibrunner-api never fetches arbitrary URLs itself).
+
+```sh
+nibr run https://github.com/caddyserver/caddy/releases/download/v2.11.4/caddy_2.11.4_linux_amd64.tar.gz \
+  --app caddy-demo --port 8080 \
+  --archive-member caddy \
+  --arg respond --arg --listen --arg :8080 --arg --body --arg "hello"
+```
+
+`--archive-member <path>` names the file to deploy inside a `.tar.gz`, `.tgz` or `.zip` (required
+whenever the resolved file is one of those, since they can hold more than one file); it can be
+the entry's exact path inside the archive, or just its basename if that's unambiguous. A plain
+`.gz` is unwrapped automatically, since it can only ever hold one file, and `--archive-member` is
+ignored for it.
+
+`--sha256 <digest>` is an optional integrity check against the final, fully resolved file
+(after any download and extraction); a mismatch refuses to deploy rather than warning.
+
+A local path through this same flag behaves exactly as it always has; URL support changes
+nothing about that case.
+
 ## `nibr apps list`
 
 ```sh

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `nibr run <binary>` now also accepts an http(s) URL in place of a local path (e.g. a GitHub
+  release asset), via new `internal/fetch` and `internal/archive` packages. `--archive-member`
+  picks the file to deploy out of a `.tar.gz`/`.tgz`/`.zip`; a plain `.gz` unwraps on its own.
+  `--sha256` optionally verifies the resolved file before deploying. A local path is unaffected:
+  same `os.Stat` check, same error message, byte-for-byte unchanged behavior. Works in both local
+  and `--remote` mode, since both only ever receive a resolved local path either way, exactly as
+  before this change; the download itself always happens on this machine, including in `--remote`
+  mode, not on the nibrunner-api side, so a write-capable network service never makes outbound
+  requests to a URL this CLI was merely pointed at. Verified against db9: deployed Caddy directly
+  from its GitHub release URL via `nibr run <url> --archive-member caddy --remote ...` and
+  confirmed it served real traffic, with the uploaded digest matching an earlier manual
+  download-and-upload of the same release byte for byte.
 - Added an opt-in `--remote <url>` / `--remote-token <token>` (or `$NIBR_REMOTE_URL` /
   `$NIBR_REMOTE_TOKEN`) mode, backed by the new `internal/remoteapi` package. With it set, `run`,
   `apps list/status/logs/delete`, and `host status` talk to a `nibrunner-api` instance (a
