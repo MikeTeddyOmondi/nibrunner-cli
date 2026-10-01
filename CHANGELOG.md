@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Added an opt-in `--remote <url>` / `--remote-token <token>` (or `$NIBR_REMOTE_URL` /
+  `$NIBR_REMOTE_TOKEN`) mode, backed by the new `internal/remoteapi` package. With it set, `run`,
+  `apps list/status/logs/delete`, and `host status` talk to a `nibrunner-api` instance (a
+  separate, sibling repo: a Gin HTTP wrapper that performs the same file I/O this CLI does
+  locally, co-located with the target nibrunnerd) over HTTP instead of this host's own files.
+  Unset, which remains the default, nothing changes: every command still operates on local files
+  exactly as before. Verified against a real nibrunnerd on the `db9` testbed: deployed a real
+  release binary (Caddy) from a separate machine over Tailscale, watched it converge, read its
+  logs, and deleted it, with results matching the equivalent local commands run on the host
+  itself.
 - Updated for nibrunner v2026.9.0 (the fork's first tagged upstream release), which added a
   required top-level `revision` field to `desired.json` (a control-plane version string;
   nibrunnerd refuses a document without one outright). `writeDesired` now bumps it fresh on every
