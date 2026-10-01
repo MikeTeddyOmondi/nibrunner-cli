@@ -83,9 +83,12 @@ nibr apps list
 ```
 
 ```
-APP                  STATE        RESTARTS   MESSAGE
-my-app               running      0
+APP                  STATE        RESTARTS   HOSTNAMES                      MESSAGE
+my-app               running      0          my-app.example.com
 ```
+
+`HOSTNAMES` comes from `desired.json` (`reported.json` never carries hostnames of its own); `-`
+means the app has none. Same cross-reference `--remote` mode's `nibrunner-api` does server-side.
 
 ## `nibr apps status --app <name>`
 
@@ -99,6 +102,7 @@ nibr apps status --app my-app
   state:         running
   hostPort:      21016
   guestIpv4:     10.201.0.10
+  hostnames:     my-app.example.com
   restartCount:  0
   startedAt:     2026-10-01T11:54:51.871Z
 ```

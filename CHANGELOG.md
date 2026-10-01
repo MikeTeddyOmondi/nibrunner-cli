@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `nibr apps list` and `nibr apps status` now show each app's hostnames, in both local and
+  `--remote` mode. `reported.json` never carries hostnames of its own, so local mode
+  cross-references `desired.json` directly (`internal/cmd.readDesiredHostnames`), and
+  `--remote` mode decodes the `hostnames` field `nibrunner-api`'s own `GET /v1/apps`/
+  `GET /v1/apps/:app` now return (new `remoteapi.AppView`, wrapping `protocol.ReportedInstance`
+  without changing that type itself, since it must stay a faithful mirror of nibrunnerd's wire
+  schema). Verified live against `db9`: `hono-demo` (`hono-demo.mt0.dev`) and `opencloud`
+  (`opencloud.mt0.dev`, after fixing a real, pre-existing `PROXY_TLS`/`OC_URL` mismatch that only
+  surfaced once it had a routable hostname for the first time) both show correctly in `list` and
+  `status`, in both modes.
 - `nibr run <binary>` now also accepts an http(s) URL in place of a local path (e.g. a GitHub
   release asset), via new `internal/fetch` and `internal/archive` packages. `--archive-member`
   picks the file to deploy out of a `.tar.gz`/`.tgz`/`.zip`; a plain `.gz` unwraps on its own.
