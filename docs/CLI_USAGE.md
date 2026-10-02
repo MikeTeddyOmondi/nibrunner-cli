@@ -161,6 +161,17 @@ redeploy under the same app name to reuse it):
 nibr apps delete --app my-app --keep-volume
 ```
 
+## `nibr apps stop --app <name>` / `nibr apps start --app <name>`
+
+Flips the app's desiredState without deleting it or its volume, so it comes back exactly as it
+was. Useful for freeing a host's capacity for another app temporarily. Works in both local and
+`--remote` mode.
+
+```sh
+nibr apps stop --app my-app
+nibr apps start --app my-app
+```
+
 ## `nibr host status`
 
 ```sh

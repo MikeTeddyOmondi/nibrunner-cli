@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Added `docs/METAFRAMEWORKS.md` with a Next.js recipe: package a JS runtime (`bun`, fetched
+  straight from a GitHub release via `nibr run`'s own URL+`--archive-member` support) as the
+  primary binary, and `.next/standalone` as one `--depends-on` dependency, tarred up and unpacked
+  by a `/bin/sh -c` wrapper at boot. Verified end to end on `db9`: Next.js 16.3.0 (App Router, a
+  server action, an API route) under `bun 1.4.2`, reachable at `next-bun.mt0.dev`, server action
+  confirmed via a real browser click, not just an HTTP check.
+- `--depends-on` no longer attempts archive extraction on its own value (previously it reused
+  `resolveBinary`'s archive detection with an empty `--archive-member`, which hard-failed on any
+  `.zip`/`.tar.gz` dependency). A dependency is now always packaged exactly as it resolves: local
+  path or downloaded URL, byte for byte, which is what lets a `.tar.gz`/`.zip` ride along as a
+  dependency for the primary program's own wrapper to unpack inside the guest at runtime (new
+  `internal/cmd.resolveDependencySource`, replacing the `resolveBinary` call `resolveDependencies`
+  used before).
+- `nibr apps stop --app <name>` / `nibr apps start --app <name>`: flip an app's `desiredState`
+  (`running`/`stopped`) without deleting it or its volume, in both local and `--remote` mode (new
+  `internal/deploy.SetState`, `internal/remoteapi.Client.SetAppState`, `nibrunner-api`'s own
+  `POST /v1/apps/:app/state`). Built out of a real need: freeing a host's `max_apps` slot and
+  vCPU/memory for a new deploy without tearing an existing app down for good.
+- Fixed a real bug in `internal/remote.CopyFile`, caught live on `db9`: it opened the destination
+  with `O_TRUNC` before reading the source, so calling it with the same path on both sides (e.g.
+  `nibr run` or `--depends-on` given a binary already sitting in the artifact store under its own
+  digest-named path) truncated that file to zero bytes instead of leaving it alone. `CopyFile` now
+  detects same-file src/dst (`os.SameFile`) and no-ops. Cost two live incidents to find: truncated
+  `hono-demo`'s and a `next-bun` standalone bundle's artifacts, both recovered by re-uploading the
+  original bytes. Regression-tested in `internal/remote/local_test.go`.
 - `nibr run <binary>` gained `--depends-on <path-or-url>[=<name>]`, repeatable, for packaging one
   or more additional binaries into the same instance as `<binary>` (one more layer per entry,
   resolved the same way the primary binary is: local path or http(s) URL, destination filename
