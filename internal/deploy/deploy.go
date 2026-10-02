@@ -26,12 +26,22 @@ var (
 	artifactDir  = "/var/lib/nibrunner/artifact-store"
 )
 
+// Dependency is one more executable packaged alongside the primary binary, in the same instance,
+// at its own path: e.g. a primary that is a shell wrapper execing two or three other binaries it
+// depends on being present. Hashed and copied into the artifact store the same way the primary
+// binary is.
+type Dependency struct {
+	BinaryPath      string
+	DestinationName string // defaults to filepath.Base(BinaryPath) if empty
+}
+
 // Options is everything a deploy needs that the daemon cannot infer from the binary alone,
 // mirroring what `nib run`'s flags ask for, adapted to running locally on the host instead of
 // against a signed-in account.
 type Options struct {
 	BinaryPath       string
 	App              string
+	Dependencies     []Dependency
 	HTTPPort         int
 	Program          string // if set, run this instead of the deployed binary (e.g. /bin/sh); the binary is still deployed at destinationPath for it to exec
 	Args             []string
@@ -56,20 +66,6 @@ type Result struct {
 // read-modify-write desired.json atomically so nibrunnerd's own file watcher never observes
 // anything but a complete document.
 func Run(opts Options) (*Result, error) {
-	digest, err := sha256File(opts.BinaryPath)
-	if err != nil {
-		return nil, fmt.Errorf("hashing %s: %w", opts.BinaryPath, err)
-	}
-
-	objectKey := digest // content-addressed: two apps with the same bytes share a key, never collide otherwise
-	artifactPath := filepath.Join(artifactDir, objectKey)
-	if err := remote.CopyFile(opts.BinaryPath, artifactPath, 0644); err != nil {
-		return nil, fmt.Errorf("copying into the artifact store: %w", err)
-	}
-	if err := verifyDigest(artifactPath, digest); err != nil {
-		return nil, err
-	}
-
 	hostID, err := currentHostID()
 	if err != nil {
 		return nil, fmt.Errorf("reading this host's own id: %w", err)
@@ -90,6 +86,25 @@ func Run(opts Options) (*Result, error) {
 		workingDir = "/app"
 	}
 	destinationPath := filepath.Join(workingDir, filepath.Base(opts.BinaryPath))
+
+	primaryLayer, err := buildLayer(opts.BinaryPath, destinationPath)
+	if err != nil {
+		return nil, err
+	}
+	digest := primaryLayer.Digest
+
+	layers := []protocol.DesiredLayer{primaryLayer}
+	for _, dep := range opts.Dependencies {
+		destName := dep.DestinationName
+		if destName == "" {
+			destName = filepath.Base(dep.BinaryPath)
+		}
+		depLayer, err := buildLayer(dep.BinaryPath, filepath.Join(workingDir, destName))
+		if err != nil {
+			return nil, fmt.Errorf("dependency %s: %w", dep.BinaryPath, err)
+		}
+		layers = append(layers, depLayer)
+	}
 
 	args := append([]string{}, opts.Args...)
 	if opts.DataDirFlag != "" {
@@ -121,12 +136,7 @@ func Run(opts Options) (*Result, error) {
 		DeploymentID: deploymentID,
 		VolumeID:     volumeID,
 		DesiredState: "running",
-		Layers: []protocol.DesiredLayer{{
-			Kind:            "executable",
-			Digest:          digest,
-			ObjectKey:       objectKey,
-			DestinationPath: destinationPath,
-		}},
+		Layers:       layers,
 		Config: protocol.AppConfig{
 			HTTPPort: opts.HTTPPort,
 			Command: protocol.Command{
@@ -221,6 +231,32 @@ func Delete(opts DeleteOptions) error {
 	}
 
 	return writeDesired(desired)
+}
+
+// buildLayer hashes binaryPath, copies it into the artifact store content-addressed by that
+// digest, verifies the copy, and returns the DesiredLayer for it at destinationPath. Used for
+// both the primary binary and each Dependency: the same local-filesystem steps either way.
+func buildLayer(binaryPath, destinationPath string) (protocol.DesiredLayer, error) {
+	digest, err := sha256File(binaryPath)
+	if err != nil {
+		return protocol.DesiredLayer{}, fmt.Errorf("hashing %s: %w", binaryPath, err)
+	}
+
+	objectKey := digest // content-addressed: two apps with the same bytes share a key, never collide otherwise
+	artifactPath := filepath.Join(artifactDir, objectKey)
+	if err := remote.CopyFile(binaryPath, artifactPath, 0644); err != nil {
+		return protocol.DesiredLayer{}, fmt.Errorf("copying %s into the artifact store: %w", binaryPath, err)
+	}
+	if err := verifyDigest(artifactPath, digest); err != nil {
+		return protocol.DesiredLayer{}, err
+	}
+
+	return protocol.DesiredLayer{
+		Kind:            "executable",
+		Digest:          digest,
+		ObjectKey:       objectKey,
+		DestinationPath: destinationPath,
+	}, nil
 }
 
 func sha256File(path string) (string, error) {
