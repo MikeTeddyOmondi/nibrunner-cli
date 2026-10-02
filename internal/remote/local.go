@@ -66,7 +66,19 @@ func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
 // CopyFile copies src to dst byte-for-byte, the artifact store's own way of receiving a binary:
 // `install -D -m 0644 ./my-server /var/lib/nibrunner/artifact-store/my-server` in the docs, done
 // in Go so the digest can be verified against the same bytes that were just written.
+//
+// If src and dst already name the same file (same device and inode, however they got there: a
+// symlink, a bind mount, or a caller naming an artifact already in the store by its own store
+// path), this is a deliberate no-op rather than a copy. Opening dst with O_TRUNC before reading
+// src would otherwise truncate the one underlying file both names point at, destroying the very
+// bytes the copy was asked to preserve.
 func CopyFile(src, dst string, mode os.FileMode) error {
+	if same, err := sameFile(src, dst); err != nil {
+		return err
+	} else if same {
+		return nil
+	}
+
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", src, err)
@@ -85,4 +97,19 @@ func CopyFile(src, dst string, mode os.FileMode) error {
 		return fmt.Errorf("copying to %s: %w", dst, err)
 	}
 	return out.Close()
+}
+
+// sameFile reports whether src and dst resolve to the same underlying file. A missing src or dst
+// is "not the same file" here, not an error: CopyFile's own os.Open(src) is what should surface a
+// missing source, with its own clearer error message.
+func sameFile(src, dst string) (bool, error) {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return false, nil
+	}
+	dstInfo, err := os.Stat(dst)
+	if err != nil {
+		return false, nil
+	}
+	return os.SameFile(srcInfo, dstInfo), nil
 }
