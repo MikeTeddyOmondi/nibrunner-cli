@@ -29,6 +29,7 @@ func newRunCmd() *cobra.Command {
 		workingDir    string
 		archiveMember string
 		sha256sum     string
+		dependsOn     []string
 	)
 
 	cmd := &cobra.Command{
@@ -38,7 +39,11 @@ func newRunCmd() *cobra.Command {
 
 <binary> is a local path, as always, or now also an http(s) URL (e.g. a GitHub release asset).
 If what that resolves to is a .tar.gz, .tgz or .zip, --archive-member names which file inside it
-to deploy; a plain .gz is unwrapped automatically since it can only ever hold one.`,
+to deploy; a plain .gz is unwrapped automatically since it can only ever hold one.
+
+--depends-on packages one more binary alongside <binary>, in the same instance, at its own path:
+for a <binary> that is itself a shell wrapper execing one or more other programs it needs present
+to run (not for apps that should be reachable independently; those are separate deploys).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			binaryPath, cleanup, err := resolveBinary(args[0], archiveMember, sha256sum)
@@ -46,6 +51,13 @@ to deploy; a plain .gz is unwrapped automatically since it can only ever hold on
 			if err != nil {
 				return err
 			}
+
+			deps, depsCleanup, err := resolveDependencies(dependsOn)
+			defer depsCleanup()
+			if err != nil {
+				return err
+			}
+
 			if healthKind == "http" && healthPath == "" {
 				return fmt.Errorf("--health-kind http needs --health-path")
 			}
@@ -60,14 +72,20 @@ to deploy; a plain .gz is unwrapped automatically since it can only ever hold on
 			binArgs = append(binArgs, argTokens...)
 
 			if rc := remoteClient(); rc != nil {
-				return runRemote(cmd, rc, binaryPath, deployArgs{
+				return runRemote(cmd, rc, binaryPath, deps, deployArgs{
 					app, port, program, binArgs, env, workingDir, dataDirFlag,
 					vcpu, memoryMib, volumeMib, healthKind, healthPath, hostname,
 				})
 			}
 
+			localDeps := make([]deploy.Dependency, len(deps))
+			for i, d := range deps {
+				localDeps[i] = deploy.Dependency{BinaryPath: d.path, DestinationName: d.destinationName}
+			}
+
 			result, err := deploy.Run(deploy.Options{
 				BinaryPath:       binaryPath,
+				Dependencies:     localDeps,
 				App:              app,
 				HTTPPort:         port,
 				Program:          program,
@@ -107,6 +125,7 @@ to deploy; a plain .gz is unwrapped automatically since it can only ever hold on
 	cmd.Flags().StringVar(&hostname, "hostname", "", "route the proxy to this app on this hostname")
 	cmd.Flags().StringVar(&archiveMember, "archive-member", "", "path (or unambiguous basename) of the binary inside <binary>, when that's a .tar.gz, .tgz or .zip")
 	cmd.Flags().StringVar(&sha256sum, "sha256", "", "expected sha256 of the resolved binary; refuses to deploy on a mismatch")
+	cmd.Flags().StringArrayVar(&dependsOn, "depends-on", nil, "a local path or URL to package alongside <binary>, repeatable; optionally <path>=<name> to set its destination filename (defaults to its own basename)")
 
 	cmd.MarkFlagRequired("app")
 	cmd.MarkFlagRequired("port")
@@ -132,15 +151,24 @@ type deployArgs struct {
 	hostname    string
 }
 
-// runRemote is --remote's path through `nibr run`: upload the binary to nibrunner-api, then
-// deploy by digest. It mirrors internal/deploy.Run's own two steps (copy into the artifact
-// store, then read-modify-write desired.json) except the first step is an HTTP upload and the
-// second an HTTP POST, both performed by nibrunner-api on the target host rather than by this
+// runRemote is --remote's path through `nibr run`: upload the binary (and each dependency) to
+// nibrunner-api, then deploy by digest. It mirrors internal/deploy.Run's own steps (copy into the
+// artifact store, then read-modify-write desired.json) except the copies are HTTP uploads and the
+// write an HTTP POST, both performed by nibrunner-api on the target host rather than by this
 // process on local files.
-func runRemote(cmd *cobra.Command, rc *remoteapi.Client, binaryPath string, a deployArgs) error {
+func runRemote(cmd *cobra.Command, rc *remoteapi.Client, binaryPath string, deps []resolvedDependency, a deployArgs) error {
 	digest, _, err := rc.UploadArtifact(binaryPath)
 	if err != nil {
 		return err
+	}
+
+	dependencies := make([]remoteapi.Dependency, len(deps))
+	for i, d := range deps {
+		depDigest, _, err := rc.UploadArtifact(d.path)
+		if err != nil {
+			return fmt.Errorf("uploading dependency %s: %w", d.path, err)
+		}
+		dependencies[i] = remoteapi.Dependency{Digest: depDigest, DestinationName: d.destinationName}
 	}
 
 	result, err := rc.DeployApp(remoteapi.DeployOptions{
@@ -149,6 +177,7 @@ func runRemote(cmd *cobra.Command, rc *remoteapi.Client, binaryPath string, a de
 		// Matches internal/deploy.Run's own default: the binary's own basename inside the
 		// guest, not the app name, so --remote and local `nibr run` behave the same way.
 		DestinationName:  filepath.Base(binaryPath),
+		Dependencies:     dependencies,
 		HTTPPort:         a.port,
 		Program:          a.program,
 		Args:             a.binArgs,

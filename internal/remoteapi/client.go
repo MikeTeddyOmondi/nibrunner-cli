@@ -118,6 +118,13 @@ func (c *Client) UploadArtifact(path string) (digest string, sizeBytes int64, er
 	return out.Digest, out.SizeBytes, nil
 }
 
+// Dependency names one more already-uploaded artifact to package alongside the primary binary,
+// at its own path, mirroring internal/deploy.Dependency but by digest rather than a local path.
+type Dependency struct {
+	Digest          string
+	DestinationName string
+}
+
 // DeployOptions mirrors internal/deploy.Options, except it names an already-uploaded Digest
 // instead of a local BinaryPath, since an HTTP deploy request carries a digest, not a path on
 // this machine.
@@ -125,6 +132,7 @@ type DeployOptions struct {
 	App              string
 	Digest           string
 	DestinationName  string
+	Dependencies     []Dependency
 	HTTPPort         int
 	Program          string
 	Args             []string
@@ -149,10 +157,16 @@ type DeployResult struct {
 // DeployApp calls POST /v1/apps, the remote equivalent of internal/deploy.Run's
 // read-modify-write-desired.json cycle.
 func (c *Client) DeployApp(opts DeployOptions) (*DeployResult, error) {
+	dependsOn := make([]map[string]string, len(opts.Dependencies))
+	for i, dep := range opts.Dependencies {
+		dependsOn[i] = map[string]string{"digest": dep.Digest, "destinationName": dep.DestinationName}
+	}
+
 	body, err := json.Marshal(map[string]any{
 		"app":              opts.App,
 		"digest":           opts.Digest,
 		"destinationName":  opts.DestinationName,
+		"dependsOn":        dependsOn,
 		"httpPort":         opts.HTTPPort,
 		"program":          opts.Program,
 		"args":             opts.Args,

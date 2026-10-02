@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"nibrunner-cli/internal/archive"
@@ -69,6 +70,55 @@ func resolveBinary(ref, archiveMember, sha256sum string) (path string, cleanup f
 	}
 
 	return source, cleanup, nil
+}
+
+// resolvedDependency is one --depends-on value, fully resolved to a local path ready to package
+// as its own layer.
+type resolvedDependency struct {
+	path            string
+	destinationName string
+}
+
+// resolveDependencies resolves every --depends-on value the same way resolveBinary resolves the
+// primary one (a local path or an http(s) URL; archive extraction and --sha256 are not supported
+// per-dependency in this first version, to keep the flag's syntax simple: a dependency that is
+// itself a .tar.gz/.tgz/.zip fails with resolveBinary's own clear error instead of silently
+// guessing a member). Returns one combined cleanup func for every dependency, so the caller only
+// has one thing to defer regardless of how many were given.
+func resolveDependencies(specs []string) ([]resolvedDependency, func(), error) {
+	var deps []resolvedDependency
+	var cleanups []func()
+	cleanup := func() {
+		for _, c := range cleanups {
+			c()
+		}
+	}
+
+	for _, spec := range specs {
+		ref, overrideName := splitDependsOn(spec)
+		path, depCleanup, err := resolveBinary(ref, "", "")
+		cleanups = append(cleanups, depCleanup)
+		if err != nil {
+			cleanup()
+			return nil, func() {}, fmt.Errorf("--depends-on %s: %w", spec, err)
+		}
+		destName := overrideName
+		if destName == "" {
+			destName = filepath.Base(path)
+		}
+		deps = append(deps, resolvedDependency{path: path, destinationName: destName})
+	}
+	return deps, cleanup, nil
+}
+
+// splitDependsOn splits "<path-or-url>[=<name>]" on the last "=", since a dependency's path or
+// URL could itself legitimately contain one earlier (a query string), but a deliberate name
+// override is always appended at the end.
+func splitDependsOn(spec string) (ref, overrideName string) {
+	if i := strings.LastIndex(spec, "="); i != -1 {
+		return spec[:i], spec[i+1:]
+	}
+	return spec, ""
 }
 
 func verifySHA256(path, want string) error {
