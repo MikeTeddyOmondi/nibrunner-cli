@@ -79,12 +79,14 @@ type resolvedDependency struct {
 	destinationName string
 }
 
-// resolveDependencies resolves every --depends-on value the same way resolveBinary resolves the
-// primary one (a local path or an http(s) URL; archive extraction and --sha256 are not supported
-// per-dependency in this first version, to keep the flag's syntax simple: a dependency that is
-// itself a .tar.gz/.tgz/.zip fails with resolveBinary's own clear error instead of silently
-// guessing a member). Returns one combined cleanup func for every dependency, so the caller only
-// has one thing to defer regardless of how many were given.
+// resolveDependencies resolves every --depends-on value to a local path (downloading it first if
+// it's an http(s) URL), the same source resolution resolveBinary does. Unlike the primary binary,
+// a dependency is never archive-extracted here: it's packaged as whatever file it resolves to,
+// byte for byte. That's deliberate, not a missing feature: a dependency ending in .tar.gz or .zip
+// is deployed as that archive, for the primary program's own wrapper to unpack inside the guest at
+// runtime (e.g. a Next.js `.next/standalone` build zipped up as one dependency, unzipped by a
+// `/bin/sh -c` wrapper before execing `bun server.js`). Returns one combined cleanup func for every
+// dependency, so the caller only has one thing to defer regardless of how many were given.
 func resolveDependencies(specs []string) ([]resolvedDependency, func(), error) {
 	var deps []resolvedDependency
 	var cleanups []func()
@@ -96,7 +98,7 @@ func resolveDependencies(specs []string) ([]resolvedDependency, func(), error) {
 
 	for _, spec := range specs {
 		ref, overrideName := splitDependsOn(spec)
-		path, depCleanup, err := resolveBinary(ref, "", "")
+		path, depCleanup, err := resolveDependencySource(ref)
 		cleanups = append(cleanups, depCleanup)
 		if err != nil {
 			cleanup()
@@ -109,6 +111,18 @@ func resolveDependencies(specs []string) ([]resolvedDependency, func(), error) {
 		deps = append(deps, resolvedDependency{path: path, destinationName: destName})
 	}
 	return deps, cleanup, nil
+}
+
+// resolveDependencySource resolves ref (a local path or http(s) URL) to a local file, with no
+// archive handling and no checksum: a dependency is always packaged exactly as it resolves.
+func resolveDependencySource(ref string) (path string, cleanup func(), err error) {
+	if fetch.IsURL(ref) {
+		return fetch.Download(ref)
+	}
+	if _, serr := os.Stat(ref); serr != nil {
+		return "", func() {}, fmt.Errorf("binary not found: %w", serr)
+	}
+	return ref, func() {}, nil
 }
 
 // splitDependsOn splits "<path-or-url>[=<name>]" on the last "=", since a dependency's path or
