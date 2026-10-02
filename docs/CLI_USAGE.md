@@ -76,6 +76,40 @@ ignored for it.
 A local path through this same flag behaves exactly as it always has; URL support changes
 nothing about that case.
 
+### Packaging multiple binaries in one microVM
+
+`--depends-on <path-or-url>` packages one more binary alongside `<binary>`, in the same instance,
+at its own path, repeatable. For a primary that is itself a shell wrapper execing one or more
+other programs it needs present to run, not for apps that should be reachable independently
+(those are separate deploys). Each dependency is resolved the same way `<binary>` itself is (a
+local path or an http(s) URL; `--archive-member`/`--sha256` are not supported per-dependency, to
+keep the flag's syntax simple).
+
+Real example, a KV cache app that bundles three binaries (`locci-kv`, `sqld`, `go-test-server`)
+into one microVM via a shell wrapper that backgrounds the first two and execs the third:
+
+```sh
+nibr run ./go-test-server --app kv-cache-demo --port 8080 \
+  --depends-on ./locci-kv \
+  --depends-on ./sqld \
+  --program /bin/sh \
+  --arg -c --arg "/app/locci-kv standalone & /app/sqld & exec /app/go-test-server" \
+  --health-kind http --health-path /health \
+  --hostname kv-cache-demo.example.com
+```
+
+Each dependency's destination filename defaults to its own basename (`./locci-kv` → `/app/locci-kv`,
+matching `--working-dir`), so the shell wrapper above can find it at the path it expects. Override
+it with `<path>=<name>` (split on the last `=`, so a URL's own query string, which could contain
+one earlier, is not mistaken for the override):
+
+```sh
+nibr run ./go-test-server --app kv-cache-demo --port 8080 \
+  --depends-on ./build/locci-kv-linux-amd64=locci-kv \
+  --depends-on ./build/sqld-linux-amd64=sqld \
+  ...
+```
+
 ## `nibr apps list`
 
 ```sh

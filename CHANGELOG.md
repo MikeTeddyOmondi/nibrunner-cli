@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `nibr run <binary>` gained `--depends-on <path-or-url>[=<name>]`, repeatable, for packaging one
+  or more additional binaries into the same instance as `<binary>` (one more layer per entry,
+  resolved the same way the primary binary is: local path or http(s) URL, destination filename
+  defaulting to its own basename or the `=<name>` override). For a primary that's itself a shell
+  wrapper execing other programs it depends on. New `internal/deploy.Dependency` (local mode,
+  hashes and copies each one into the artifact store the same way the primary is) and
+  `internal/remoteapi.Dependency` (`--remote` mode, each uploaded via `UploadArtifact` then sent
+  as nibrunner-api's new `dependsOn` field). Verified live against `db9`: redeployed
+  `kv-cache-demo` (a real app bundling `locci-kv`, `sqld` and `go-test-server` via a shell
+  wrapper) with `--depends-on` twice, confirmed all three layers survived and it's reachable at
+  `kv-cache-demo.mt0.dev`.
 - `nibr apps list` and `nibr apps status` now show each app's hostnames, in both local and
   `--remote` mode. `reported.json` never carries hostnames of its own, so local mode
   cross-references `desired.json` directly (`internal/cmd.readDesiredHostnames`), and
