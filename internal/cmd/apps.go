@@ -24,6 +24,8 @@ func newAppsCmd() *cobra.Command {
 	cmd.AddCommand(newAppsStatusCmd())
 	cmd.AddCommand(newAppsLogsCmd())
 	cmd.AddCommand(newAppsDeleteCmd())
+	cmd.AddCommand(newAppsStateCmd("stop", "stopped", "Stop an app without deleting it or its volume"))
+	cmd.AddCommand(newAppsStateCmd("start", "running", "Start a previously stopped app again"))
 	return cmd
 }
 
@@ -249,6 +251,33 @@ func newAppsDeleteCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&app, "app", "", "the app to delete (required)")
 	cmd.Flags().BoolVar(&keepVolume, "keep-volume", false, "leave the app's volume in place instead of marking it absent")
+	cmd.MarkFlagRequired("app")
+	return cmd
+}
+
+// newAppsStateCmd builds both `apps stop` and `apps start`: same shape, different desiredState.
+func newAppsStateCmd(use, state, short string) *cobra.Command {
+	var app string
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if rc := remoteClient(); rc != nil {
+				if err := rc.SetAppState(app, state); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "set %s's desiredState to %q on %s; nibrunnerd will converge it on its next pass\n", app, state, remoteURL)
+				return nil
+			}
+			if err := deploy.SetState(app, state); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "set %s's desiredState to %q; nibrunnerd will converge it on its next pass\n", app, state)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&app, "app", "", "the app to "+use+" (required)")
 	cmd.MarkFlagRequired("app")
 	return cmd
 }

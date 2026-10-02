@@ -188,6 +188,30 @@ func Run(opts Options) (*Result, error) {
 	return &Result{AppID: opts.App, DeploymentID: deploymentID, Digest: digest}, nil
 }
 
+// SetState flips an existing app's desiredState (e.g. "running" to "stopped" and back), leaving
+// everything else about its instance (layers, config, hostnames) untouched. Unlike Delete, the
+// instance stays in desired.json and its volume is never touched, so nibrunnerd tears the microVM
+// down (or boots it again) without losing anything a later run of the same appId would need.
+func SetState(app, state string) error {
+	hostID, err := currentHostID()
+	if err != nil {
+		return fmt.Errorf("reading this host's own id: %w", err)
+	}
+
+	desired, err := readDesired(hostID)
+	if err != nil {
+		return err
+	}
+
+	existing := findInstance(desired.Instances, app)
+	if existing == nil {
+		return fmt.Errorf("no app named %q in desired.json", app)
+	}
+	existing.DesiredState = state
+
+	return writeDesired(desired)
+}
+
 // DeleteOptions names the app to remove and whether its volume should go with it.
 type DeleteOptions struct {
 	App        string

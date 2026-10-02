@@ -221,6 +221,27 @@ func (c *Client) DeleteApp(app string, keepVolume bool) error {
 	return nil
 }
 
+// SetAppState calls POST /v1/apps/:app/state, the remote equivalent of internal/deploy.SetState:
+// it flips desiredState (e.g. "running" to "stopped" and back) without touching the instance or
+// its volume otherwise.
+func (c *Client) SetAppState(app, state string) error {
+	body, err := json.Marshal(map[string]string{"state": state})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/v1/apps/"+url.PathEscape(app)+"/state", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.do(req)
+	if err != nil {
+		return fmt.Errorf("setting %s's state to %q: %w", app, state, err)
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
 // AppView is an app's reported status enriched with its hostnames, mirroring nibrunner-api's own
 // AppView: reported.json never carries hostnames (there's nothing for nibrunnerd to report back
 // about one beyond what it was already told), so nibrunner-api cross-references desired.json and
